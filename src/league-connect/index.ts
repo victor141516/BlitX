@@ -1,0 +1,5 @@
+export { connect } from './connection'
+export { request } from './http'
+export { auth } from './auth'
+export { LeagueWebSocket } from './websocket'
+export { Credentials, Effect, EventResponse, Dictionary, Request } from './types'
