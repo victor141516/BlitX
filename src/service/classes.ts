@@ -1,6 +1,8 @@
 import * as LC from '../league-connect';
 import cheerio from 'cheerio';
 import got from 'got';
+import { throws } from 'assert';
+import { threadId } from 'worker_threads';
 
 
 function normalize(s: string): string {
@@ -19,16 +21,24 @@ export const BlitxPositions = {
 export class LolApi {
     leagueConnect: any
     credentials: LC.Credentials | undefined
+    currentPatch: string | null
     private _websocket: LC.LeagueWebSocket | null
-    private _pollerResponses: { [key: string]: string }
 
     constructor() {
         this.credentials = undefined
         LC.auth().then((c: LC.Credentials) => (this.credentials = c)).catch(() => { })
+        this.currentPatch = null
         this._websocket = null
-
-        this._pollerResponses = {}
     }
+
+    async getCurrentPatch(): Promise<string> {
+        if (!this.currentPatch) {
+            const patches = (await got('https://ddragon.leagueoflegends.com/api/versions.json').json()) as string[]
+            this.currentPatch = patches[0]
+        }
+        return this.currentPatch!
+    }
+
 
     get websocket(): Promise<LC.LeagueWebSocket> {
         return new Promise(async res => {
@@ -66,7 +76,7 @@ export class LolApi {
         })
     }
 
-    request(url: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: any): Promise<any> {
+    request(url: string, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET', body?: any): Promise<any> {
         return LC.request({ url, method, body }, this.credentials).then((t: any) => {
             try {
                 if (t.status === 204) return {}
@@ -141,7 +151,6 @@ export class Champion {
 export class Champions {
     lolApi: LolApi
     allChampions: Champion[]
-    currentPatch: string | null
     listReady: Promise<any>
     private _championsObserved: boolean
 
@@ -150,19 +159,10 @@ export class Champions {
         this.allChampions = []
         this.listReady = this.fetchStaticChampions()
         this._championsObserved = false
-        this.currentPatch = null
-    }
-
-    private async getCurrentPatch(): Promise<string> {
-        if (!this.currentPatch) {
-            const patches = (await got('https://ddragon.leagueoflegends.com/api/versions.json').json()) as string[]
-            this.currentPatch = patches[0]
-        }
-        return this.currentPatch!
     }
 
     private async fetchStaticChampions() {
-        this.allChampions = await got(`https://ddragon.leagueoflegends.com/cdn/${await this.getCurrentPatch()}/data/en_US/champion.json`).json()
+        this.allChampions = await got(`https://ddragon.leagueoflegends.com/cdn/${await this.lolApi.getCurrentPatch()}/data/en_US/champion.json`).json()
             .then((r: any) => Object.values(r.data).map((c: any) => new Champion({ id: Number.parseInt(c.key), icon: c.image.full, name: c.id, isPickable: null, isBannable: null })))
     }
 
@@ -342,7 +342,7 @@ export class GameLobby {
 
     get firstUncompletedPickAction(): Action | undefined {
         const allActions = Array.prototype.concat(...this.turns.map(t => t.actions))
-        return allActions.filter(x => x.type === "pick" && x.actorCellId === this.myCellId && !x.completed)[0];
+        return allActions.filter(x => x.type === 'pick' && x.actorCellId === this.myCellId && !x.completed)[0];
     }
 
 }
@@ -501,6 +501,41 @@ interface IChampionGgRunePage {
     PRIMARY_RUNES: string[]
     SECONDARY_RUNES: string[]
     SHARD_RUNES: string[]
+}
+
+export class Summoner {
+    id: number
+    name: string
+    availableGameModes: string[]
+
+    constructor(data: any) {
+        this.id = data.id
+        this.name = data.name
+        this.availableGameModes = data.gameModes.filter(g => g !== '')
+    }
+}
+
+export class Summoners {
+    lolApi: LolApi
+    ready: Promise<any>
+    allSummoners: Summoner[]
+
+
+    constructor(lolApi: LolApi) {
+        this.lolApi = lolApi
+        this.allSummoners = []
+        this.ready = this.fetchSummoners().then(d => (this.allSummoners = d))
+    }
+
+    private fetchSummoners(): Promise<Summoner[]> {
+        return this.lolApi.request('/lol-game-data/assets/v1/summoner-spells.json').then(ss => ss.filter(ss => ss.name !== '').map(s => new Summoner(s)))
+    }
+
+    selectSummoners(firstSummonerName: string, secondSummonerName: string) {
+        const spell1Id = this.allSummoners.find(s => s.name === firstSummonerName)!.id
+        const spell2Id = this.allSummoners.find(s => s.name === secondSummonerName)!.id
+        return this.lolApi.request('/lol-champ-select/v1/session/my-selection', 'PATCH', { spell1Id, spell2Id });
+    }
 }
 
 export type ChampionGgPosition = 'Top' | 'Jungle' | 'Middle' | 'ADC' | 'Support'

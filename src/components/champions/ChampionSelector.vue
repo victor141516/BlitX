@@ -55,7 +55,7 @@ export default class ChampionSelector extends Vue {
     }
 
     getIconForChampion(c: Champion) {
-        return `http://ddragon.leagueoflegends.com/cdn/${this.$root.$data.service.champions.currentPatch}/img/champion/${c.icon}`;
+        return `http://ddragon.leagueoflegends.com/cdn/${this.$root.$data.service.lolApi.currentPatch}/img/champion/${c.icon}`;
     }
 
     selectChampion(championId: number) {

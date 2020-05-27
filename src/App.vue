@@ -20,6 +20,13 @@
                 </p>
                 <settings v-if="showSettings"></settings>
                 <template v-else>
+                    <button
+                        class="mb-2"
+                        @click="startService"
+                        :disabled="startButtonDisabled"
+                    >
+                        Start
+                    </button>
                     <automation></automation>
                     <champions v-if="showChampions"></champions>
                 </template>
@@ -49,10 +56,13 @@ export default class App extends Vue {
     electronRemote: Electron.BrowserWindow = remote.getCurrentWindow();
     showSettings = false;
     showChampions = false;
+    startButtonDisabled = false;
 
     beforeMount() {
-        this.$root.$data.service.champions.listReady.then(
-            () => (this.showChampions = true)
+        this.$root.$data.service.champions.listReady.then(() =>
+            this.$root.$data.service.summoners.ready.then(
+                () => (this.showChampions = true)
+            )
         );
     }
 
@@ -96,23 +106,31 @@ export default class App extends Vue {
         this.electronRemote.close();
     }
 
-    async runService() {
-        const loop = () =>
-            backend
-                .run(this.$root.$data.config, this.$root.$data.service)
-                .catch(console.error);
-
-        await loop();
-        while (this.$root.$data.config.isValid) {
-            await new Promise(res =>
-                setTimeout(async () => res(await loop()), 5000)
-            );
-        }
+    startService() {
+        this.startButtonDisabled = true;
+        backend
+            .run(this.$root.$data.config, this.$root.$data.service)
+            .then(() => (this.startButtonDisabled = false))
+            .catch(console.error);
     }
 
-    mounted() {
-        this.runService();
-    }
+    // async runService() {
+    //     const loop = () =>
+    //         backend
+    //             .run(this.$root.$data.config, this.$root.$data.service)
+    //             .catch(console.error);
+
+    //     await loop();
+    //     while (this.$root.$data.config.isValid) {
+    //         await new Promise(res =>
+    //             setTimeout(async () => res(await loop()), 5000)
+    //         );
+    //     }
+    // }
+
+    // mounted() {
+    //     this.runService();
+    // }
 }
 </script>
 

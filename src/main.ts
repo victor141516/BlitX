@@ -10,7 +10,8 @@ import {
     Champions,
     RunePage,
     PartyLobby,
-    GameLobby
+    GameLobby,
+    Summoners
 } from './service/classes';
 import { Config } from './config';
 
@@ -19,6 +20,7 @@ const champions = new Champions(lolApi);
 const rune = new RunePage(lolApi);
 const lobby = new PartyLobby(lolApi);
 const gameLobby = new GameLobby(lolApi);
+const summoners = new Summoners(lolApi);
 
 const config = new Config(`${os.userInfo().homedir}\\blitx.json`);
 config.writeConfig();
@@ -29,6 +31,6 @@ Vue.config.productionTip = false;
 new Vue({
     render: h => h(App),
     data() {
-        return { config, service: { lolApi, champions, rune, lobby, gameLobby } };
+        return { config, service: { lolApi, champions, rune, lobby, gameLobby, summoners } };
     }
 }).$mount('#app');

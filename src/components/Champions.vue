@@ -7,20 +7,34 @@
         >
             <legend>{{ positionName }} position</legend>
             <div>
-                <fieldset>
-                    <legend>Position</legend>
-                    <select
-                        :value="selectedPositions[attributeName]"
-                        @change="onPositionChange(attributeName, $event)"
-                    >
-                        <option
-                            v-for="position in positions"
-                            :key="position.value"
-                            :value="position.value"
-                            >{{ position.text }}</option
+                <div class="flex flex-wrap">
+                    <fieldset class="flex-1 mr-1">
+                        <legend>Position</legend>
+                        <select
+                            class="mt-1"
+                            :value="selectedPositions[attributeName]"
+                            @change="onPositionChange(attributeName, $event)"
                         >
-                    </select>
-                </fieldset>
+                            <option
+                                v-for="position in positions[attributeName]"
+                                :key="position.value"
+                                :value="position.value"
+                                >{{ position.text }}</option
+                            >
+                        </select>
+                    </fieldset>
+                    <fieldset class="flex-1 ml-1">
+                        <legend>Summoner spells</legend>
+                        <summoner-selector
+                            :selected-summoners="
+                                selectedSummoners[attributeName]
+                            "
+                            @summoner-select="
+                                onSummonerSelected(attributeName, $event)
+                            "
+                        ></summoner-selector>
+                    </fieldset>
+                </div>
 
                 <fieldset class="mt-2">
                     <legend>Champions to pick</legend>
@@ -90,13 +104,21 @@
 import got from 'got';
 import { Component, Vue } from 'vue-property-decorator';
 
-import { BlitxPositions, TBlitxPositions, Champion } from '../service/classes';
-import { Config } from '../config';
+import {
+    BlitxPositions,
+    TBlitxPositions,
+    Champion,
+    Summoner,
+    Summoners
+} from '../service/classes';
+import { Config, LanePreference } from '../config';
 import ChampionSelector from './champions/ChampionSelector.vue';
+import SummonerSelector from './champions/SummonerSelector.vue';
 
 @Component({
     components: {
-        'champion-selector': ChampionSelector
+        'champion-selector': ChampionSelector,
+        'summoner-selector': SummonerSelector
     }
 })
 export default class Champions extends Vue {
@@ -115,6 +137,11 @@ export default class Champions extends Vue {
         secondary: Array<Champion | null>;
     } = { primary: [null], secondary: [null] };
 
+    selectedSummoners: {
+        primary: { first?: Summoner; second?: Summoner };
+        secondary: { first?: Summoner; second?: Summoner };
+    } = { primary: {}, secondary: {} };
+
     interfaceBuilder = [
         {
             positionName: 'Primary',
@@ -125,14 +152,6 @@ export default class Champions extends Vue {
             attributeName: 'secondary'
         }
     ];
-
-    positions = Object.keys(BlitxPositions).map(p => ({
-        text:
-            p === BlitxPositions.ADC
-                ? p
-                : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
-        value: p
-    }));
 
     beforeMount() {
         ['primary', 'secondary'].forEach(pos => {
@@ -145,6 +164,25 @@ export default class Champions extends Vue {
         this.readChampionPreferences();
     }
 
+    get positions(): { primary: any[]; secondary: any[] } {
+        const pos = Object.keys(BlitxPositions).map(p => ({
+            text:
+                p === BlitxPositions.ADC
+                    ? p
+                    : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(),
+            value: p
+        }));
+
+        const primary = pos.filter(
+            p => this.selectedPositions.secondary !== p.value
+        );
+        const secondary = pos.filter(
+            p => this.selectedPositions.primary !== p.value
+        );
+
+        return { primary, secondary };
+    }
+
     get config(): Config {
         return this.$root.$data.config;
     }
@@ -153,7 +191,13 @@ export default class Champions extends Vue {
         this.config[`${attributeName}Position`] = this.selectedPositions[
             attributeName
         ];
-        this.saveConfig().then(() => this.readChampionPreferences());
+        const overridePrimary =
+            attributeName === 'primary' ? event.target.value : undefined;
+        const overrideSecondary =
+            attributeName === 'secondary' ? event.target.value : undefined;
+        this.saveConfig(overridePrimary, overrideSecondary).then(() =>
+            this.readChampionPreferences()
+        );
         this.$set(this.selectedPositions, attributeName, event.target.value);
     }
 
@@ -182,11 +226,41 @@ export default class Champions extends Vue {
         }
     }
 
-    saveConfig() {
+    onSummonerSelected(
+        position: 'primary' | 'secondary',
+        {
+            summonerId,
+            summonerOrder
+        }: {
+            summonerId: number;
+            summonerOrder: 'first' | 'second';
+        }
+    ) {
+        const summoners = this.$root.$data.service.summoners as Summoners;
+        const selectedSummoner = summoners.allSummoners.find(
+            s => s.id === summonerId
+        );
+        this.$set(
+            this.selectedSummoners[position],
+            summonerOrder,
+            selectedSummoner
+        );
+        this.saveConfig().then(() => this.readChampionPreferences());
+    }
+
+    saveConfig(
+        overridePrimaryPosition?: TBlitxPositions,
+        overrideSecondaryPosition?: TBlitxPositions
+    ) {
         if (this.selectedPositions.primary)
             this.config.primaryPosition = this.selectedPositions.primary;
         if (this.selectedPositions.secondary)
             this.config.secondaryPosition = this.selectedPositions.secondary;
+
+        if (overridePrimaryPosition)
+            this.config.primaryPosition = overridePrimaryPosition;
+        if (overrideSecondaryPosition)
+            this.config.secondaryPosition = overrideSecondaryPosition;
 
         ['primary', 'secondary'].forEach(pos => {
             if (!this.selectedPositions[pos]) return;
@@ -194,11 +268,20 @@ export default class Champions extends Vue {
             const index = this.config.lanePreferences.findIndex(
                 p => p.lane === this.selectedPositions[pos]
             );
+
+            const summoners: { first?: string; second?: string } = {};
+            if (this.selectedSummoners[pos].first)
+                summoners.first = this.selectedSummoners[pos].first.name;
+            if (this.selectedSummoners[pos].second)
+                summoners.second = this.selectedSummoners[pos].second.name;
+
             const laneChampions = {
                 lane: this.selectedPositions[pos],
                 pick: this.pickChampions[pos].filter(Boolean).map(c => c!.name),
-                ban: this.banChampions[pos].filter(Boolean).map(c => c!.name)
-            };
+                ban: this.banChampions[pos].filter(Boolean).map(c => c!.name),
+                summoners
+            } as LanePreference;
+
             if (index === -1) this.config.lanePreferences.push(laneChampions);
             else this.config.lanePreferences[index] = laneChampions;
         });
@@ -224,7 +307,9 @@ export default class Champions extends Vue {
         };
 
         ['primary', 'secondary'].forEach(pos => {
-            const lane = this.config.lanePreferences.find(
+            const lane:
+                | LanePreference
+                | undefined = this.config.lanePreferences.find(
                 p => p.lane === this.selectedPositions[pos]
             );
 
@@ -245,10 +330,22 @@ export default class Champions extends Vue {
                         )
                     ) as Array<Champion | null>).concat(null);
             }
+
+            const summoners = this.$root.$data.service.summoners as Summoners;
+            const summs = {
+                first: summoners.allSummoners.find(
+                    s => s.name === lane!.summoners?.first
+                ),
+                second: summoners.allSummoners.find(
+                    s => s.name === lane!.summoners?.second
+                )
+            };
+
             this.$set(this.pickChampions, pos, newPicks[pos]);
             this.$set(this.banChampions, pos, newBans[pos]);
             this.$set(this.pickChampions, pos, newPicks[pos]);
             this.$set(this.banChampions, pos, newBans[pos]);
+            this.$set(this.selectedSummoners, pos, summs);
         });
     }
 }

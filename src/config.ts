@@ -5,10 +5,11 @@ import { readFileSync, writeFile } from 'fs';
 type TLaneName = 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT';
 type TGameMode = 'FLEX' | 'SOLOQ' | 'NORMAL' | 'ARAM';
 
-interface LanePreference {
+export interface LanePreference {
     lane: TLaneName;
     pick: string[];
     ban: string[];
+    summoners: { first: string, second: string }
 }
 
 export class Config {
@@ -29,7 +30,7 @@ export class Config {
     lanePreferences: LanePreference[];
     primaryPosition: TLaneName;
     secondaryPosition: TLaneName;
-    preferredGameType: TGameMode;
+    preferredGameMode: TGameMode;
 
     constructor(overrideFileName?: string) {
         this.autolobby = false;
@@ -43,7 +44,7 @@ export class Config {
         this.autosummoners = false;
         this.scaleFactor = 2;
         this.lanePreferences = [];
-        this.preferredGameType = 'NORMAL';
+        this.preferredGameMode = 'NORMAL';
         this.primaryPosition = 'SUPPORT';
         this.secondaryPosition = 'MID';
 
@@ -81,7 +82,7 @@ export class Config {
             typeof this.autopick === 'boolean' &&
             typeof this.autorunes === 'boolean' &&
             typeof this.autosummoners === 'boolean' &&
-            typeof this.preferredGameType === 'string' &&
+            typeof this.preferredGameMode === 'string' &&
             typeof this.scaleFactor === 'number' &&
             lanes.includes(this.primaryPosition) &&
             lanes.includes(this.secondaryPosition) &&
@@ -90,7 +91,9 @@ export class Config {
                 p =>
                     lanes.includes(p.lane) &&
                     p.ban.every(b => typeof b === 'string') &&
-                    p.pick.every(p => typeof p === 'string')
+                    p.pick.every(p => typeof p === 'string') &&
+                    typeof p.summoners.first === 'string' &&
+                    typeof p.summoners.second === 'string'
             )
         );
     }
