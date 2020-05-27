@@ -2,7 +2,7 @@
 
 # BlitX
 
-Leage of Legends pre-game automation tool
+League of Legends pre-game automation tool
   
  <br /> 
   
