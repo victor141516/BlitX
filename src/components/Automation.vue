@@ -47,8 +47,8 @@ export default class Automation extends Vue {
         new Question('autodeclare', 'Auto-declare'),
         new Question('autoban', 'Auto-ban'),
         new Question('autopick', 'Auto-pick'),
-        new Question('autorunes', 'Auto-runes'),
-        new Question('autosummoners', 'Auto-summoners')
+        new Question('autorunes', 'Auto-runes')
+        // new Question('autosummoners', 'Auto-summoners')
     ];
 
     beforeMount() {

@@ -1,14 +1,14 @@
 import { LolApi, Champion, Champions, Action, GameLobby, PartyLobby, PartyLobbyGameMode, RunePage, ChampionGg, PartyLobbyPosition } from "./classes"; // eslint-disable-line no-unused-vars
 import { Config } from "../config";
 
-export async function run(config: Config) {
-    const lolApi = new LolApi()
+export async function run(
+    config: Config,
+    { lolApi, champions, rune, lobby, gameLobby }: { lolApi: LolApi, champions, Champions, rune: RunePage, lobby: PartyLobby, gameLobby: GameLobby }
+) {
+    config.readConfig()
     console.log('Waiting for League of Legends to be open')
     await lolApi.waitForLol()
 
-    const champions = new Champions(lolApi)
-    const rune = new RunePage(lolApi)
-    const lobby = new PartyLobby(lolApi)
 
     if (config.autolobby) {
         console.log('Going to queue')
@@ -18,8 +18,8 @@ export async function run(config: Config) {
     if (config.autoposition) {
         console.log('Picking positions')
         await lobby.pickPositions({
-            firstPosition: PartyLobby.POSITIONS[config.firstLane] as PartyLobbyPosition,
-            secondPosition: PartyLobby.POSITIONS[config.secondLane] as PartyLobbyPosition
+            firstPosition: PartyLobby.POSITIONS[config.primaryPosition] as PartyLobbyPosition,
+            secondPosition: PartyLobby.POSITIONS[config.secondaryPosition] as PartyLobbyPosition
         })
     }
 
@@ -34,7 +34,6 @@ export async function run(config: Config) {
         await lobby.acceptGame()
     }
 
-    const gameLobby = new GameLobby(lolApi)
 
     let championsToBan: string[] | null = null
     let championsToPick: string[] | null = null

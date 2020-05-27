@@ -263,7 +263,7 @@ class WebSocket extends EventEmitter {
     if (this.readyState !== WebSocket.OPEN) {
       const err = new Error(
         `WebSocket is not open: readyState ${this.readyState} ` +
-          `(${readyStates[this.readyState]})`
+        `(${readyStates[this.readyState]})`
       );
 
       if (cb) return cb(err);
@@ -295,7 +295,7 @@ class WebSocket extends EventEmitter {
     if (this.readyState !== WebSocket.OPEN) {
       const err = new Error(
         `WebSocket is not open: readyState ${this.readyState} ` +
-          `(${readyStates[this.readyState]})`
+        `(${readyStates[this.readyState]})`
       );
 
       if (cb) return cb(err);
@@ -328,7 +328,7 @@ class WebSocket extends EventEmitter {
     if (this.readyState !== WebSocket.OPEN) {
       const err = new Error(
         `WebSocket is not open: readyState ${this.readyState} ` +
-          `(${readyStates[this.readyState]})`
+        `(${readyStates[this.readyState]})`
       );
 
       if (cb) return cb(err);
@@ -468,7 +468,7 @@ function initAsClient(websocket, address, protocols, options) {
   if (!protocolVersions.includes(opts.protocolVersion)) {
     throw new RangeError(
       `Unsupported protocol version: ${opts.protocolVersion} ` +
-        `(supported versions: ${protocolVersions.join(', ')})`
+      `(supported versions: ${protocolVersions.join(', ')})`
     );
   }
 

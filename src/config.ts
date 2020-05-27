@@ -2,71 +2,77 @@
 
 import { readFileSync, writeFile } from 'fs';
 
-type TLaneName = 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT'
-type TGameMode = 'FLEX' | 'SOLOQ' | 'NORMAL' | 'ARAM'
+type TLaneName = 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT';
+type TGameMode = 'FLEX' | 'SOLOQ' | 'NORMAL' | 'ARAM';
 
 interface LanePreference {
-    lane: TLaneName
-    pick: string[]
-    ban: string[]
+    lane: TLaneName;
+    pick: string[];
+    ban: string[];
 }
 
 export class Config {
-    static CONFIG_FILENAME = './userconfig.json'
+    static CONFIG_FILENAME = './userconfig.json';
 
-    autolobby: boolean
-    autoposition: boolean
-    autosearch: boolean
-    autoaccept: boolean
-    autodeclare: boolean
-    autoban: boolean
-    autopick: boolean
-    autorunes: boolean
-    autosummoners: boolean
-    scaleFactor: number
-    lanePreferences: LanePreference[]
-    firstLane: TLaneName
-    secondLane: TLaneName
-    preferredGameType: TGameMode
+    private _configFilename = Config.CONFIG_FILENAME;
 
+    autolobby: boolean;
+    autoposition: boolean;
+    autosearch: boolean;
+    autoaccept: boolean;
+    autodeclare: boolean;
+    autoban: boolean;
+    autopick: boolean;
+    autorunes: boolean;
+    autosummoners: boolean;
+    scaleFactor: number;
+    lanePreferences: LanePreference[];
+    primaryPosition: TLaneName;
+    secondaryPosition: TLaneName;
+    preferredGameType: TGameMode;
 
     constructor(overrideFileName?: string) {
-        this.autolobby = false
-        this.autoposition = false
-        this.autosearch = false
-        this.autoaccept = false
-        this.autodeclare = false
-        this.autoban = false
-        this.autopick = false
-        this.autorunes = false
-        this.autosummoners = false
-        this.scaleFactor = 2
-        this.lanePreferences = []
-        this.preferredGameType = 'NORMAL'
-        this.firstLane = 'SUPPORT'
-        this.secondLane = 'MID'
+        this.autolobby = false;
+        this.autoposition = false;
+        this.autosearch = false;
+        this.autoaccept = false;
+        this.autodeclare = false;
+        this.autoban = false;
+        this.autopick = false;
+        this.autorunes = false;
+        this.autosummoners = false;
+        this.scaleFactor = 2;
+        this.lanePreferences = [];
+        this.preferredGameType = 'NORMAL';
+        this.primaryPosition = 'SUPPORT';
+        this.secondaryPosition = 'MID';
 
-        const filePath = overrideFileName || Config.CONFIG_FILENAME
-        let rawConfig = null
+        this._configFilename = overrideFileName || Config.CONFIG_FILENAME;
+        this.readConfig();
+    }
+
+    readConfig(): void {
         try {
-            rawConfig = JSON.parse(readFileSync(filePath).toString())
-        } catch (err) { console.warn(err); console.log(filePath) } // eslint-disable-line no-empty
-
-        Object.assign(this, rawConfig)
+            const rawConfig = JSON.parse(
+                readFileSync(this._configFilename).toString()
+            );
+            Object.assign(this, rawConfig);
+        } catch { } // eslint-disable-line no-empty
     }
 
     async writeConfig(): Promise<any> {
         return new Promise(res => {
-            const serializedData = JSON.stringify(this, undefined, '    ')
-            writeFile(Config.CONFIG_FILENAME, serializedData, res)
-        })
+            const serializedData = JSON.stringify(this, undefined, '    ');
+            writeFile(this._configFilename, serializedData, res);
+        });
     }
 
     get isValid(): boolean {
-        return true
-        const lanes = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT']
+        return true;
+        const lanes = ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'];
 
-        return typeof this.autolobby === 'boolean' &&
+        return (
+            typeof this.autolobby === 'boolean' &&
             typeof this.autoposition === 'boolean' &&
             typeof this.autosearch === 'boolean' &&
             typeof this.autoaccept === 'boolean' &&
@@ -77,12 +83,15 @@ export class Config {
             typeof this.autosummoners === 'boolean' &&
             typeof this.preferredGameType === 'string' &&
             typeof this.scaleFactor === 'number' &&
-            lanes.includes(this.firstLane) &&
-            lanes.includes(this.secondLane) &&
+            lanes.includes(this.primaryPosition) &&
+            lanes.includes(this.secondaryPosition) &&
             lanes.every(l => this.lanePreferences[l] !== undefined) &&
-            this.lanePreferences.every(p => lanes.includes(p.lane) &&
-                p.ban.every(b => typeof b === 'string') &&
-                p.pick.every(p => typeof p === 'string')
+            this.lanePreferences.every(
+                p =>
+                    lanes.includes(p.lane) &&
+                    p.ban.every(b => typeof b === 'string') &&
+                    p.pick.every(p => typeof p === 'string')
             )
+        );
     }
 }

@@ -5,9 +5,10 @@ Leage of Legends pre-game automation tool
 ## TODO
 
  - [ ] Add summoner spell automation
- - [ ] Add interface for champ, lane and summoner selection
+ - [ ] Add interface summoner selection
  - [ ] Allow to use a custom script for picks and bans phase
  - [ ] Allow to save custom runes for a given champion/lane
+ - [ ] Add an option to show debug console
 
 
 #### Note

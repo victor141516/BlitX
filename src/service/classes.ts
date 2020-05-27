@@ -8,6 +8,13 @@ function normalize(s: string): string {
 }
 
 export type TBlitxPositions = 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT'
+export const BlitxPositions = {
+    TOP: 'TOP',
+    JUNGLE: 'JUNGLE',
+    MID: 'MID',
+    ADC: 'ADC',
+    SUPPORT: 'SUPPORT'
+}
 
 export class LolApi {
     leagueConnect: any
@@ -112,6 +119,7 @@ interface IChampion {
     name: string
     isPickable: boolean | null
     isBannable: boolean | null
+    icon: string
 }
 
 export class Champion {
@@ -119,48 +127,50 @@ export class Champion {
     name: string
     isPickable: boolean | null
     isBannable: boolean | null
+    icon: string
 
     constructor(c: IChampion) {
         this.id = c.id
         this.name = c.name
         this.isPickable = c.isPickable
         this.isBannable = c.isBannable
+        this.icon = c.icon
     }
 }
 
 export class Champions {
     lolApi: LolApi
     allChampions: Champion[]
-    private _listReady: Promise<any>
+    currentPatch: string | null
+    listReady: Promise<any>
     private _championsObserved: boolean
-    private _currentPatch: string | null
 
     constructor(lolApi: LolApi) {
         this.lolApi = lolApi
         this.allChampions = []
-        this._listReady = this.fetchStaticChampions()
+        this.listReady = this.fetchStaticChampions()
         this._championsObserved = false
-        this._currentPatch = null
+        this.currentPatch = null
     }
 
     private async getCurrentPatch(): Promise<string> {
-        if (!this._currentPatch) {
+        if (!this.currentPatch) {
             const patches = (await got('https://ddragon.leagueoflegends.com/api/versions.json').json()) as string[]
-            this._currentPatch = patches[0]
+            this.currentPatch = patches[0]
         }
-        return this._currentPatch!
+        return this.currentPatch!
     }
 
     private async fetchStaticChampions() {
         this.allChampions = await got(`https://ddragon.leagueoflegends.com/cdn/${await this.getCurrentPatch()}/data/en_US/champion.json`).json()
-            .then((r: any) => Object.values(r.data).map((c: any) => new Champion({ id: Number.parseInt(c.key), name: c.id, isPickable: null, isBannable: null })))
+            .then((r: any) => Object.values(r.data).map((c: any) => new Champion({ id: Number.parseInt(c.key), icon: c.image.full, name: c.id, isPickable: null, isBannable: null })))
     }
 
     async observeAllChampion(): Promise<any> {
         if (this._championsObserved) return
 
         this._championsObserved = true
-        await this._listReady
+        await this.listReady
 
         const editChampions = async (champions: number[], key: string) => {
             this.allChampions.forEach(champion => {
@@ -189,7 +199,7 @@ export class Champions {
     }
 
     async findChampion(param: string): Promise<Champion | undefined> {
-        await this._listReady
+        await this.listReady
         return this.allChampions.find(({ name }) => name === param)
     }
 }

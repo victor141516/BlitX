@@ -3,6 +3,7 @@ import { EventResponse, Effect, Dictionary } from './index'
 import { trimSlashes } from './utils'
 
 export class LeagueWebSocket extends WebSocket {
+  [x: string]: any
   private subscriptions: Dictionary<Array<Effect>> = {}
 
   constructor(address: string, options: ClientOptions) {
