@@ -1,7 +1,11 @@
+<img src="build/icon.png" align="left" width="128">
+
 # BlitX
 
 Leage of Legends pre-game automation tool
-
+  
+ <br /> 
+  
 ## TODO
 
  - [ ] Add summoner spell automation
