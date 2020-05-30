@@ -87,7 +87,7 @@ export class LolApi {
         })
     }
 
-    async observe(url: string, cb: (arg0: any) => {}): Promise<{ unsubscribe: () => {} }> {
+    async observe(url: string, cb: (arg0: any) => any): Promise<{ unsubscribe: () => {} }> {
         return new Promise(res => {
             this.request(url, 'GET').then(async r => {
                 const obs = this._observe(
@@ -247,6 +247,12 @@ export class Turn {
     }
 }
 
+interface IGameLobbyPlayer {
+    cellId: number | null
+    championId: string | null
+    assignedPosition: string
+}
+
 export class GameLobby {
     static PHASES = {
         PLANNING: 'PLANNING',
@@ -265,21 +271,34 @@ export class GameLobby {
 
     lolApi: LolApi
     turns: Turn[]
-    onAction: null | (() => {})
+    onAction: ((...args: any[]) => any)[]
     myCellId: number | null
+    myPlayer: IGameLobbyPlayer | null
     myPosition: TBlitxPositions | null
+    myTeam: IGameLobbyPlayer[]
+    theirTeam: IGameLobbyPlayer[]
     phase: string | null
     firstTurn: boolean
 
     constructor(lolApi: LolApi) {
         this.lolApi = lolApi
         this.turns = []
-        this.onAction = null
+        this.onAction = []
         this.myCellId = null
+        this.myPlayer = null
         this.myPosition = null
+        this.myTeam = []
+        this.theirTeam = []
         this.phase = null
 
         this.firstTurn = true
+    }
+
+    addOnActionHandler(f: (...args: any[]) => any) {
+        this.onAction.push(f)
+        return () => {
+            this.onAction = this.onAction.filter(g => g !== f)
+        }
     }
 
     async waitForGameLobby(): Promise<void> {
@@ -291,17 +310,40 @@ export class GameLobby {
         }).then((obs) => obs.unsubscribe())
     }
 
+    async waitLeaveGameLobby(): Promise<any> {
+        return new Promise(res => {
+            this.lolApi.observe('/lol-champ-select/v1/session', r => {
+                if (!(r && r.myTeam && r.myTeam.filter(x => x.cellId === r.localPlayerCellId)[0] !== undefined)) res()
+            })
+        })
+    }
+
     async observeActions(): Promise<{ unsubscribe: () => void }> {
-        const onResponse = async ({ actions, localPlayerCellId, timer, myTeam }: { actions: any[], localPlayerCellId: number, timer: { phase: string }, myTeam: any[] }) => {
+        const onResponse = ({
+            actions,
+            localPlayerCellId,
+            timer,
+            myTeam,
+            theirTeam }: {
+                actions: any[],
+                localPlayerCellId: number,
+                timer: { phase: string },
+                myTeam: IGameLobbyPlayer[],
+                theirTeam: IGameLobbyPlayer[]
+            }) => {
             this.phase = timer.phase
             const newTurns = actions.map(turn => new Turn(turn))
             this.myCellId = localPlayerCellId
-            if (!this.myPosition) {
-                const p = myTeam.find(({ cellId }) => cellId === this.myCellId).assignedPosition
-                if (p) this.myPosition = GameLobby.LOL_RESPONSE_POSITIONS[p]
+            this.myTeam = myTeam
+            this.theirTeam = theirTeam
+
+            const myPlayer = this.myTeam.find(p => p.cellId === this.myCellId)
+            if (myPlayer) {
+                this.myPlayer = myPlayer
+                this.myPosition = GameLobby.LOL_RESPONSE_POSITIONS[this.myPlayer.assignedPosition]
             }
             this.turns = newTurns
-            if (this.onAction) this.onAction()
+            this.onAction.forEach(f => f().catch(console.error))
         }
 
         return this.lolApi.observe(
@@ -357,7 +399,7 @@ interface IPickedPositions {
 
 
 export class PartyLobby {
-    static POSITIONS: { [key: string]: string } = {
+    static POSITIONS: { [key: string]: PartyLobbyPosition } = {
         TOP: 'TOP',
         JUNGLE: 'JUNGLE',
         MID: 'MIDDLE',
@@ -410,6 +452,15 @@ export class PartyLobby {
                 if (r && r.searchState === 'Found') res(obs)
             })
         }).then((obs: any) => obs.unsubscribe())
+    }
+
+    waitLeaveQueue(): Promise<any> {
+        return new Promise(res => {
+            const obs = this.lolApi.observe('/lol-matchmaking/v1/search', async r => {
+                if (r && r.isCurrentlyInQueue) res(obs)
+            })
+        }).then((obs: any) => obs.unsubscribe())
+
     }
 }
 

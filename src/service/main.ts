@@ -1,157 +1,193 @@
-import { LolApi, Champion, Champions, Action, GameLobby, PartyLobby, PartyLobbyGameMode, RunePage, ChampionGg, PartyLobbyPosition, Summoners } from "./classes"; // eslint-disable-line no-unused-vars
-import { Config } from "../config";
-
-const DEBUG = false;
+import { Champion, Champions, Action, GameLobby, PartyLobby, PartyLobbyGameMode, RunePage, ChampionGg, PartyLobbyPosition, Summoners } from './classes'; // eslint-disable-line no-unused-vars
+import * as errors from './errors';
+import { Config, LanePreference } from '../config';
 
 export async function run(
     config: Config,
-    { lolApi, champions, rune, lobby, gameLobby, summoners }: { lolApi: LolApi, champions, Champions, rune: RunePage, lobby: PartyLobby, gameLobby: GameLobby, summoners: Summoners }
+    { champions, rune, lobby, gameLobby, summoners }: { champions: Champions, rune: RunePage, lobby: PartyLobby, gameLobby: GameLobby, summoners: Summoners }
 ) {
-    config.readConfig()
-    if (DEBUG) console.log('Waiting for League of Legends to be open')
-    await lolApi.waitForLol()
 
-
-    if (config.autolobby) {
-        if (DEBUG) console.log('Going to queue')
-        await lobby.goQueue(PartyLobby.GAME_MODES[config.preferredGameMode] as PartyLobbyGameMode)
+    async function autolobby() {
+        const gm = PartyLobby.GAME_MODES[config.preferredGameMode]
+        if (!gm) throw new errors.MissingGameModeError()
+        else return lobby.goQueue(gm)
     }
 
-    if (config.autoposition) {
-        if (DEBUG) console.log('Picking positions')
-        await lobby.pickPositions({
-            firstPosition: PartyLobby.POSITIONS[config.primaryPosition] as PartyLobbyPosition,
-            secondPosition: PartyLobby.POSITIONS[config.secondaryPosition] as PartyLobbyPosition
-        })
+    async function autoposition() {
+        const pp = PartyLobby.POSITIONS[config.primaryPosition]
+        const sp = PartyLobby.POSITIONS[config.secondaryPosition]
+        if (!pp || !sp) throw new errors.MissingPositionError(`Primary: ${pp} | Secondary: ${sp}`)
+        else return lobby.pickPositions({ firstPosition: pp, secondPosition: sp })
+
     }
 
-    if (config.autosearch) {
-        if (DEBUG) console.log('Begin search')
-        await lobby.searchGame()
-    }
-    if (config.autoaccept) {
-        if (DEBUG) console.log('Waiting to accept')
-        await lobby.waitToFind()
-        if (DEBUG) console.log('Accepting')
-        await lobby.acceptGame()
+    async function autosearch() {
+        return lobby.searchGame()
     }
 
+    async function autoaccept() {
+        let stop = false
+        lobby.waitLeaveQueue().then(() => (stop = true))
 
-    let championsToBan: string[] | null = null
-    let championsToPick: string[] | null = null
-    let championToPick: string | undefined = undefined
-    let championToBan: string | undefined = undefined
-    let stopObserveActions: null | (() => void) = null
+        while (!stop) {
+            await lobby.waitToFind()
+            await lobby.acceptGame()
+        }
+    }
 
-    const DEFAULT_POSITION = 'JUNGLE'
+    async function autodeclare(pref: LanePreference): Promise<() => void> {
+        const championsToPick = pref.pick.slice(0)
+        if (!championsToPick || championsToPick.length === 0) throw new errors.NoChampionToPickError()
 
-    new Promise(async res => {
-        let lastTurn: number | null = null
-        let lastPhase: string | null = null
+        let lock = false
 
-        const onAction = async () => {
-            if (gameLobby.phase === GameLobby.PHASES.FINALIZATION) {
-                if (stopObserveActions) stopObserveActions()
-                return res()
-            }
-            const pref = config.lanePreferences.find(({ lane }) => lane === gameLobby.myPosition || DEFAULT_POSITION)!
-            if (championsToBan === null) {
-                championsToBan = pref.ban.slice(0).reverse()
-            }
+        const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+            if (lock) return
+            if (gameLobby.phase === GameLobby.PHASES.PLANNING) {
+                lock = true
+                if (championsToPick.length === 0) throw new errors.NoChampionToPickError()
 
-            if (championsToPick === null) {
-                championsToPick = pref.pick.slice(0).reverse()
-            }
+                let champion: Champion | null = null
 
-            if (lastTurn === gameLobby.currentTurn && lastPhase === gameLobby.phase) return
-            lastTurn = gameLobby.currentTurn
-            lastPhase = gameLobby.phase
+                while (!champion && championsToPick.length > 0) {
+                    const tempChampion = await champions.findChampion(championsToPick.shift()!)
+                    if (tempChampion && tempChampion.isBannable) champion = tempChampion
+                }
 
-            if (gameLobby.myCellId === null) return
-
-            const action = gameLobby.myActionInProgress
-            if (!action) return
-
-
-            if (gameLobby.phase === GameLobby.PHASES.PLANNING && config.autodeclare) {
-                const champion = (await champions.findChampion(championsToPick![championsToPick!.length - 1]))!
-                if (DEBUG) console.log('Declaring now: ', champion.name)
+                if (!champion) throw new errors.CannotFindChampionError()
                 await gameLobby.pickChampion(champion, gameLobby.firstUncompletedPickAction!, false)
-                    .catch(e => console.log('ERROR PLANNING', e, gameLobby.firstUncompletedPickAction, champion))
-            } else if (gameLobby.phase === GameLobby.PHASES.BAN_PICK) {
-                if (action.type === Action.TYPES.PICK) {
-                    if (config.autopick) {
 
-                        let pickCompleted = false
+                lock = false
+            }
+        })
 
-                        while (!pickCompleted && championsToPick.length > 0) {
-                            let champion = { isPickable: false } as Champion
-                            while (championsToPick.length > 0 && !champion.isPickable) {
-                                championToPick = championsToPick!.pop()!
-                                champion = await champions.findChampion(championToPick) || champion
-                            }
+        return removeActionHandler
+    }
 
-                            if (!champion) { console.error('Could not find a valid champion to pick'); return }
-                            if (DEBUG) console.log('Picking now: ', champion.name)
-                            await gameLobby.pickChampion(champion, action).then(() => (pickCompleted = true)).catch(e => console.log('ERROR PICKING', e, action, champion))
-                        }
+    async function autoban(pref: LanePreference): Promise<() => void> {
+        const championsToBan = pref.ban.slice(0)
+        if (!championsToBan || championsToBan.length === 0) throw new errors.NoChampionToBanError()
+
+        let lock = false
+
+        const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+            if (lock) return
+            if (gameLobby.phase === GameLobby.PHASES.BAN_PICK) {
+                lock = true
+                const action = gameLobby.myActionInProgress
+                if (action && action.type === Action.TYPES.BAN) {
+                    if (championsToBan.length === 0) throw new errors.NoChampionToBanError()
+                    let champion: Champion | null = null
+
+                    while (!champion && championsToBan.length > 0) {
+                        const tempChampion = await champions.findChampion(championsToBan.shift()!)
+                        console.log(tempChampion)
+                        if (tempChampion && tempChampion.isBannable) champion = tempChampion
                     }
-                } else if (action.type === Action.TYPES.BAN) {
-                    if (config.autoban && championsToBan!.length > 0) {
-                        let banCompleted = false
 
-                        while (!banCompleted && championsToBan.length > 0) {
+                    // if (!champion) throw new errors.CannotFindBannableChampionError()
+                    if (champion) await gameLobby.banChampion(champion, action).then(r => {
+                        console.log('###############################')
+                        console.log(r)
+                        console.log('###############################')
+                    })
+                    lock = false
+                }
+            }
+        })
 
-                            let champion = { isBannable: false } as Champion
-                            while (championsToBan.length > 0 && !champion.isBannable) {
-                                championToBan = championsToBan!.pop()!
-                                champion = await champions.findChampion(championToBan) || champion
-                            }
+        return removeActionHandler
+    }
 
-                            if (!champion) { console.error('Could not find a valid champion to ban'); return }
-                            if (DEBUG) console.log('Banning now: ', champion.name)
-                            await gameLobby.banChampion(champion, action).then(() => (banCompleted = true)).catch(e => console.log('ERROR BANNING', e, action, champion))
-                        }
+    async function autopick(pref: LanePreference): Promise<() => void> {
+        const championsToPick = pref.pick.slice(0)
+        if (!championsToPick || championsToPick.length === 0) throw new errors.NoChampionToPickError()
+
+        let lock = false
+
+        const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+            if (lock) return
+
+            if (gameLobby.phase === GameLobby.PHASES.BAN_PICK) {
+                const action = gameLobby.myActionInProgress
+                if (action && action.type === Action.TYPES.PICK) {
+                    lock = true
+
+                    if (championsToPick.length === 0) throw new errors.NoChampionToPickError()
+                    let champion: Champion | null = null
+
+                    while (!champion && championsToPick.length > 0) {
+                        const tempChampion = await champions.findChampion(championsToPick.shift()!)
+                        if (tempChampion && tempChampion.isPickable) champion = tempChampion
                     }
-                } else console.warn('Unknown action type', action)
-            } else console.log(`Current phase: ${gameLobby.phase}`)
-        }
 
-        if (config.autodeclare || config.autopick || config.autoban) {
-            gameLobby.onAction = onAction
-            if (DEBUG) console.log('Waiting for champ select phase')
-            await gameLobby.waitForGameLobby()
-            if (DEBUG) console.log('Updating lobby actions')
-            stopObserveActions = await gameLobby.observeActions().then(s => s.unsubscribe)
-            if (DEBUG) console.log('Getting champions status...')
-            await champions.observeAllChampion()
-        }
-    }).then(async () => {
-        await Promise.all([
-            (async () => {
-                if (config.autorunes) {
-                    if (DEBUG) console.log('Getting all your rune pages')
-                    const allRunes = await rune.getAllRunes()
-
-                    if (DEBUG) console.log('Getting optimized runes...')
-                    const desiredRunes = await ChampionGg.getRunes(championToPick!, ChampionGg.POSITIONS[gameLobby.myPosition || DEFAULT_POSITION])
-                    const newRunes = ChampionGg.formatRunes(desiredRunes, allRunes)
-                    if (DEBUG) console.log('Runes obtained:', JSON.stringify(newRunes))
-
-                    if (DEBUG) console.log('Editing runes')
-                    await rune.editRunes(newRunes)
-                    if (DEBUG) console.log('Selecting runes')
-                    await rune.selectRunePage()
+                    if (!champion) throw new errors.CannotFindBannableChampionError()
+                    await gameLobby.pickChampion(champion, action)
+                    lock = false
                 }
-            })(),
-            (async () => {
-                if (config.autosummoners) {
-                    await summoners.ready
-                    const pref = config.lanePreferences.find(p => p.lane === gameLobby.myPosition || DEFAULT_POSITION)!
-                    if (pref.summoners.first && pref.summoners.second) await summoners.selectSummoners(pref.summoners.first, pref.summoners.second)
-                }
-            })()
-        ])
-        if (DEBUG) console.log('GL&HF')
-    })
+            }
+        })
+
+        return removeActionHandler
+    }
+
+    async function autorunes(): Promise<() => void> {
+        const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+            if (gameLobby.phase === GameLobby.PHASES.FINALIZATION) {
+                const allRunes = await rune.getAllRunes()
+                if (!gameLobby.myPlayer || !gameLobby.myPlayer.championId) return console.warn('Cannot get your selected champion', gameLobby.myPlayer)
+
+                const desiredRunes = await ChampionGg.getRunes(gameLobby.myPlayer.championId, ChampionGg.POSITIONS[gameLobby.myPosition || config.primaryPosition])
+                const newRunes = ChampionGg.formatRunes(desiredRunes, allRunes)
+
+                await rune.editRunes(newRunes)
+                await rune.selectRunePage()
+            }
+        })
+
+        return removeActionHandler
+    }
+
+    async function autosummoners(pref: LanePreference): Promise<() => void> {
+        const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+            if (gameLobby.phase === GameLobby.PHASES.FINALIZATION) {
+
+                await summoners.ready
+                if (!pref.summoners || !pref.summoners.first || !pref.summoners.second) throw new errors.MissingSummonersError(JSON.stringify(pref))
+                await summoners.selectSummoners(pref.summoners.first, pref.summoners.second)
+            }
+        })
+
+        return removeActionHandler
+    }
+
+
+    config.readConfig()
+
+    if (config.autolobby) await autolobby()
+    if (config.autoposition) await autoposition()
+    if (config.autosearch) await autosearch()
+    if (config.autoaccept) await autoaccept()
+
+
+    if (config.autodeclare || config.autoban || config.autopick || config.autorunes || config.autosummoners) {
+        const championsOberver = await champions.observeAllChampion()
+        const actionObserver = await gameLobby.observeActions()
+
+        const pref = config.lanePreferences.find(({ lane }) => lane === (gameLobby.myPosition || config.primaryPosition))!
+        if (!pref) throw new errors.MisingLanePreferenceError(JSON.stringify(config.lanePreferences));
+
+        const gameLobbyPromises: Promise<(() => void) | void>[] = []
+        if (config.autodeclare) gameLobbyPromises.push(autodeclare(pref))
+        if (config.autoban) gameLobbyPromises.push(autoban(pref))
+        if (config.autopick) gameLobbyPromises.push(autopick(pref))
+        if (config.autorunes) gameLobbyPromises.push(autorunes())
+        if (config.autosummoners) gameLobbyPromises.push(autosummoners(pref))
+
+        const stopHandlers = await Promise.all(gameLobbyPromises)
+        await gameLobby.waitLeaveGameLobby()
+        stopHandlers.forEach(f => f && f())
+        actionObserver.unsubscribe()
+        championsOberver.unsubscribe()
+    }
 }

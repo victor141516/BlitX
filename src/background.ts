@@ -26,7 +26,7 @@ function createWindow() {
         width: WINDOW_WIDTH,
         height: WINDOW_HEIGHT,
         frame: false,
-        resizable: false,
+        resizable: true,
         webPreferences: {
             devTools: true,
             nodeIntegration: true,

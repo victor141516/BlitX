@@ -58,12 +58,22 @@ export default class App extends Vue {
     showChampions = false;
     startButtonDisabled = false;
 
+    windowWidth = WINDOW_WIDTH;
+    windowHeight = WINDOW_HEIGHT;
+
     beforeMount() {
         this.$root.$data.service.champions.listReady.then(() =>
             this.$root.$data.service.summoners.ready.then(
                 () => (this.showChampions = true)
             )
         );
+    }
+
+    mounted() {
+        this.electronRemote.on('resize', () => {
+            this.windowWidth = this.electronRemote.getSize()[0];
+            this.windowHeight = this.electronRemote.getSize()[1];
+        });
     }
 
     get windowStyle() {
@@ -82,9 +92,9 @@ export default class App extends Vue {
         const leftValue =
             topLeftValues[this.$root.$data.config.scaleFactor.toString()];
         const widthValue =
-            WINDOW_WIDTH / this.$root.$data.config.scaleFactor + offset;
+            this.windowWidth / this.$root.$data.config.scaleFactor + offset;
         const heightValue =
-            WINDOW_HEIGHT / this.$root.$data.config.scaleFactor + offset;
+            this.windowHeight / this.$root.$data.config.scaleFactor + offset;
         const transformValue = this.$root.$data.config.scaleFactor;
 
         return `height: ${Math.ceil(heightValue)}px; width: ${Math.ceil(
@@ -94,7 +104,8 @@ export default class App extends Vue {
 
     get frameStyle() {
         const heightValue =
-            WINDOW_HEIGHT / this.$root.$data.config.scaleFactor - 25;
+            this.windowHeight / this.$root.$data.config.scaleFactor - 25;
+
         return `height: ${Math.ceil(heightValue)}px;`;
     }
 

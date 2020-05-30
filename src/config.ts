@@ -63,7 +63,8 @@ export class Config {
 
     async writeConfig(): Promise<any> {
         return new Promise(res => {
-            const serializedData = JSON.stringify(this, undefined, '    ');
+            const data = Object.keys(this).filter(k => !k.startsWith('_')).reduce((acc, k) => Object.assign({}, acc, { [k]: this[k] }), {})
+            const serializedData = JSON.stringify(data, undefined, '    ');
             writeFile(this._configFilename, serializedData, res);
         });
     }
