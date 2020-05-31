@@ -1,7 +1,8 @@
 import * as os from 'os';
-import { Champions, GameLobby, PartyLobby, RunePage, Summoners, LolApi } from './classes';
+import { Champions, GameLobby, PartyLobby, RunePage, Summoners, LolApi, ChampionGg } from './classes';
 import { Config } from '../config';
 import * as service from './main';
+import { HTTPError } from 'got/dist/source';
 
 const lolApi = new LolApi();
 const champions = new Champions(lolApi);
@@ -19,5 +20,10 @@ service.run(config, {
     lobby,
     gameLobby,
     summoners
+}).catch((e: any) => {
+    console.log('################### GLOBAL ERROR')
+    console.log(e?.request?.requestUrl)
+    console.error(e?.response?.body)
+    console.log('################### GLOBAL ERROR')
 })
 

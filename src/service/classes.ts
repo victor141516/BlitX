@@ -1,8 +1,6 @@
 import * as LC from '../league-connect';
 import cheerio from 'cheerio';
 import got from 'got';
-import { throws } from 'assert';
-import { threadId } from 'worker_threads';
 
 
 function normalize(s: string): string {
@@ -179,21 +177,25 @@ export class Champions {
             })
         }
 
-        const pickable = new Promise(res => this.lolApi.observe(
-            '/lol-champ-select/v1/pickable-champion-ids',
-            async r => {
-                await editChampions(r, 'isPickable')
-                res()
-            }
-        ))
+        const pickable = new Promise(res => {
+            const obs = this.lolApi.observe(
+                '/lol-champ-select/v1/pickable-champion-ids',
+                async r => {
+                    await editChampions(r, 'isPickable')
+                    res(obs)
+                }
+            )
+        }).catch(() => console.warn('Error while observing /lol-champ-select/v1/pickable-champion-ids'))
 
-        const bannable = new Promise(res => this.lolApi.observe(
-            '/lol-champ-select/v1/bannable-champion-ids',
-            async r => {
-                await editChampions(r, 'isBannable')
-                res()
-            }
-        ))
+        const bannable = new Promise(res => {
+            const obs = this.lolApi.observe(
+                '/lol-champ-select/v1/bannable-champion-ids',
+                async r => {
+                    await editChampions(r, 'isBannable')
+                    res(obs)
+                }
+            )
+        }).catch(() => console.warn('Error while observing /lol-champ-select/v1/bannable-champion-ids'))
 
         return Promise.all([pickable, bannable])
     }
@@ -249,7 +251,7 @@ export class Turn {
 
 interface IGameLobbyPlayer {
     cellId: number | null
-    championId: string | null
+    championId: number | null
     assignedPosition: string
 }
 
@@ -306,8 +308,17 @@ export class GameLobby {
             const obs = this.lolApi.observe(
                 '/lol-champ-select/v1/session',
                 () => res(obs)
-            ).catch(console.warn)
+            ).catch(() => console.warn('Error while observing /lol-champ-select/v1/session'))
         }).then((obs) => obs.unsubscribe())
+    }
+
+    async isInGameLobby(): Promise<boolean> {
+        try {
+            const r = await this.lolApi.request('/lol-champ-select/v1/session')
+            return r && r.myTeam && r.myTeam.filter(x => x.cellId === r.localPlayerCellId)[0] !== undefined
+        } catch (error) {
+            return false
+        }
     }
 
     async waitLeaveGameLobby(): Promise<any> {
@@ -343,13 +354,31 @@ export class GameLobby {
                 this.myPosition = GameLobby.LOL_RESPONSE_POSITIONS[this.myPlayer.assignedPosition]
             }
             this.turns = newTurns
-            this.onAction.forEach(f => f().catch(console.error))
+            this.onAction.forEach(async f => {
+                try {
+                    f()
+                } catch (error) {
+                    console.log('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ ERROR ON ACTION HANDLER')
+                    console.log(error)
+                    console.log('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ ERROR ON ACTION HANDLER')
+                }
+            })
         }
 
-        return this.lolApi.observe(
-            '/lol-champ-select/v1/session',
-            onResponse
-        )
+        const loopId = setInterval(() => {
+            this.lolApi.request('/lol-champ-select/v1/session').then(onResponse).catch(() => { })
+        }, 1000)
+
+        return { unsubscribe: () => clearInterval(loopId) }
+
+
+        // return this.lolApi.observe(
+        //     '/lol-champ-select/v1/session',
+        //     onResponse
+        // ).catch(e => {
+        //     console.warn('Error while observing /lol-champ-select/v1/session')
+        //     throw e
+        // })
     }
 
     get currentTurn(): number | null {
@@ -420,6 +449,15 @@ export class PartyLobby {
         this.lolApi = lolApi
     }
 
+    async isInLobby(): Promise<boolean> {
+        try {
+            await this.lolApi.request('/lol-lobby/v2/lobby')
+            return true
+        } catch {
+            return false
+        }
+    }
+
     goQueue(position: PartyLobbyGameMode): Promise<any> {
         const body = {
             FLEX: { queueId: 440 },
@@ -457,8 +495,9 @@ export class PartyLobby {
     waitLeaveQueue(): Promise<any> {
         return new Promise(res => {
             const obs = this.lolApi.observe('/lol-matchmaking/v1/search', async r => {
-                if (r && r.isCurrentlyInQueue) res(obs)
-            })
+                console.log('isCurrentlyInQueue:', r.isCurrentlyInQueue)
+                if (!r?.isCurrentlyInQueue) res(obs)
+            }).catch(() => res(obs))
         }).then((obs: any) => obs.unsubscribe())
 
     }
@@ -602,14 +641,14 @@ export class ChampionGg {
     }
 
     static async getRunes(championName: string, position: ChampionGgPosition): Promise<IChampionGgRunePage> {
-        const url = `${ChampionGg.BASE_URL}/${championName}/${position}`
+        const url = `${ChampionGg.BASE_URL}/${championName}/${position}?league=gold`
         const html = await got(url).then(r => r.body)
         const $ = cheerio.load(html)
         const title = $('h2.champion-stats').toArray().find(e => $(e).text() === 'Highest Win % Runes')
         const runeContainer = $(title!.parent).find('.o-wrap #app')
 
-        const leftColumn = runeContainer.find('#primary-path div[class^=Slot__RightSide] > div:not([class]) > div > div').map((i, e) => $(e).text()).toArray()
-        const rightColumn = runeContainer.find('#secondary-path div[class^=Slot__RightSide] > div[class^=Description] > div').map((i, e) => $(e).text()).toArray()
+        const leftColumn = runeContainer.find('#primary-path div[class^=Slot__RightSide] > div:not([class]) > div > div').toArray()
+        const rightColumn = runeContainer.find('#secondary-path div[class^=Slot__RightSide] > div[class^=Description] > div').toArray()
         const PRIMARY_STYLE = normalize(runeContainer.find('#primary-path div[class^=Slot__RightSide] > div[class^=Description] > div').text())
         const SECONDARY_STYLE = normalize(runeContainer.find('#secondary-path div[class^=Slot__RightSide] > div:not([class]) > div > div').text())
         const PRIMARY_RUNES = leftColumn.map(e => normalize($(e).text()))
@@ -633,7 +672,7 @@ export class ChampionGg {
         newRunes.selectedPerkIds = [...runes.PRIMARY_RUNES, ...runes.SECONDARY_RUNES, ...runes.SHARD_RUNES].map(rn => {
             const runeId = allRunes[rn]
             if (!runeId) {
-                throw new Error(`Unknown rune ${rn} ${JSON.stringify(runes)}`)
+                throw new Error(`Unknown rune (${rn}) (${JSON.stringify(runes)})`)
             } else return runeId
         })
         return newRunes

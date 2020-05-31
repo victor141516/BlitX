@@ -1,5 +1,6 @@
 export class CannotFindBannableChampionError extends Error { }
 export class CannotFindChampionError extends Error { }
+export class CannotFindPickableChampionError extends Error { }
 export class MisingLanePreferenceError extends Error { }
 export class MissingGameModeError extends Error { }
 export class MissingPositionError extends Error { }
