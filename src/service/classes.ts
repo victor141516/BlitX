@@ -211,7 +211,7 @@ interface IAction {
     type: 'pick' | 'ban'
     completed: boolean
     actorCellId: number
-    championId: string
+    championId: number
     isAllyAction: boolean
     isInProgress: boolean
 }
@@ -226,7 +226,7 @@ export class Action {
     type: 'pick' | 'ban'
     completed: boolean
     actorCellId: number
-    championId: string
+    championId: number
     isAllyAction: boolean
 
     constructor(a: IAction) {
@@ -281,6 +281,8 @@ export class GameLobby {
     theirTeam: IGameLobbyPlayer[]
     phase: string | null
     firstTurn: boolean
+    bannedChampions: number[]
+    declarationActionIds: number[]
 
     constructor(lolApi: LolApi) {
         this.lolApi = lolApi
@@ -292,6 +294,8 @@ export class GameLobby {
         this.myTeam = []
         this.theirTeam = []
         this.phase = null
+        this.bannedChampions = []
+        this.declarationActionIds = []
 
         this.firstTurn = true
     }
@@ -321,32 +325,24 @@ export class GameLobby {
         }
     }
 
-    async waitLeaveGameLobby(): Promise<any> {
-        return new Promise(res => {
-            this.lolApi.observe('/lol-champ-select/v1/session', r => {
-                if (!(r && r.myTeam && r.myTeam.filter(x => x.cellId === r.localPlayerCellId)[0] !== undefined)) res()
-            })
-        })
-    }
-
     async observeActions(): Promise<{ unsubscribe: () => void }> {
-        const onResponse = ({
-            actions,
-            localPlayerCellId,
-            timer,
-            myTeam,
-            theirTeam }: {
-                actions: any[],
-                localPlayerCellId: number,
-                timer: { phase: string },
-                myTeam: IGameLobbyPlayer[],
-                theirTeam: IGameLobbyPlayer[]
-            }) => {
+        const onResponse = (response: {
+            actions: any[],
+            localPlayerCellId: number,
+            timer: { phase: string },
+            myTeam: IGameLobbyPlayer[],
+            theirTeam: IGameLobbyPlayer[]
+        }) => {
+            const { actions, localPlayerCellId, timer, myTeam, theirTeam } = response;
+            this.bannedChampions = actions.flat().filter(x => x.type === "ban" && x.completed).map(x => x.championId);
             this.phase = timer.phase
             const newTurns = actions.map(turn => new Turn(turn))
             this.myCellId = localPlayerCellId
             this.myTeam = myTeam
             this.theirTeam = theirTeam
+
+            // console.log('My Team:', JSON.stringify(myTeam, undefined, 2));
+            // console.log('Their Team:', JSON.stringify(theirTeam, undefined, 2));
 
             const myPlayer = this.myTeam.find(p => p.cellId === this.myCellId)
             if (myPlayer) {
@@ -354,6 +350,11 @@ export class GameLobby {
                 this.myPosition = GameLobby.LOL_RESPONSE_POSITIONS[this.myPlayer.assignedPosition]
             }
             this.turns = newTurns
+
+            if (this.phase !== GameLobby.PHASES.PLANNING && this.firstUncompletedPickAction) {
+                this.declarationActionIds = this.turns.find(t => t.actions.includes(this.firstUncompletedPickAction!))!.actions.map(a => a.id)
+            }
+
             this.onAction.forEach(async f => {
                 try {
                     f()
@@ -394,6 +395,13 @@ export class GameLobby {
         else return null
     }
 
+    get myTeamDeclaredChampionIds(): number[] {
+        return this.turns.map(t => t.actions).flat().filter(a => this.declarationActionIds.includes(a.id)).map(a => {
+            console.log(a)
+            return a.championId
+        })
+    }
+
     async pickChampion(champion: Champion, action: Action, doCompletion: boolean = true): Promise<any> {
         return this.lolApi.request(`/lol-champ-select/v1/session/actions/${action.id}`, 'PATCH', { championId: champion.id }).then(async pick => {
             if (pick.errorCode) {
@@ -428,6 +436,11 @@ interface IPickedPositions {
 
 
 export class PartyLobby {
+    static SEARCH_STATUSES: { [key: string]: string } = {
+        SEARCHING: 'Searching',
+        FOUND: 'Found',
+    }
+
     static POSITIONS: { [key: string]: PartyLobbyPosition } = {
         TOP: 'TOP',
         JUNGLE: 'JUNGLE',
@@ -444,6 +457,7 @@ export class PartyLobby {
     }
 
     lolApi: LolApi
+    currentSearchState?: string
 
     constructor(lolApi: LolApi) {
         this.lolApi = lolApi
@@ -484,12 +498,12 @@ export class PartyLobby {
         return this.lolApi.request('/lol-matchmaking/v1/ready-check/accept', 'POST')
     }
 
-    waitToFind(): Promise<any> {
-        return new Promise(res => {
-            const obs = this.lolApi.observe('/lol-matchmaking/v1/search', async r => {
-                if (r && r.searchState === 'Found') res(obs)
-            })
-        }).then((obs: any) => obs.unsubscribe())
+    async observeSearchStatus(): Promise<() => {}> {
+        const obs = this.lolApi.observe('/lol-matchmaking/v1/search', async r => {
+            if (r?.searchState) this.currentSearchState = r.searchState
+        })
+        return obs.then(o => o.unsubscribe)
+
     }
 
     waitLeaveQueue(): Promise<any> {

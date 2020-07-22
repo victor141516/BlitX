@@ -20,10 +20,13 @@ service.run(config, {
     lobby,
     gameLobby,
     summoners
-}).catch((e: any) => {
-    console.log('################### GLOBAL ERROR')
-    console.log(e?.request?.requestUrl)
-    console.error(e?.response?.body)
-    console.log('################### GLOBAL ERROR')
 })
+    .then(() => console.log('--> FINISHED'))
+    .catch((e: any) => {
+        console.log('################### GLOBAL ERROR')
+        console.log(e?.request?.requestUrl)
+        console.error(e?.response?.body)
+        if (!e?.request) console.log(e)
+        console.log('################### GLOBAL ERROR')
+    })
 

@@ -1,7 +1,9 @@
 import { Champion, Champions, Action, GameLobby, PartyLobby, PartyLobbyGameMode, RunePage, ChampionGg, PartyLobbyPosition, Summoners } from './classes'; // eslint-disable-line no-unused-vars
 import * as errors from './errors';
 import { Config, LanePreference } from '../config';
+import { HTTPError } from 'got/dist/source';
 
+const sleep = t => new Promise(res => setTimeout(res, t))
 
 function errorIsChampionAlreadyUsed(e: any) {
     try {
@@ -36,22 +38,30 @@ export async function run(
         return lobby.searchGame()
     }
 
-    async function autoaccept() {
-        let stop = false
-        // lobby.waitLeaveQueue().then(() => (stop = true))
-
-        while (!stop) {
-            try {
-                await lobby.waitToFind()
+    async function autoaccept(): Promise<() => void> {
+        const observer = await lobby.observeSearchStatus()
+        while (true) { // eslint-disable-line no-constant-condition
+            console.log(lobby.currentSearchState)
+            if (lobby.currentSearchState === PartyLobby.SEARCH_STATUSES.FOUND) {
+                console.log('Game found, accepting')
                 await lobby.acceptGame()
-            } catch (error) {
-                console.log('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-                console.log('Error while accepting or waiting to accept')
-                console.log('Response:', error?.response?.body)
-                console.log('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
-                stop = true // Temporary fix. waitLeaveQueue is not working
+                console.log('Game accepted, waiting for game lobby or declination')
+                while (!(await gameLobby.isInGameLobby())) {
+                    console.log('Not in game lobby')
+                    await sleep(1000)
+                    if (lobby.currentSearchState === PartyLobby.SEARCH_STATUSES.SEARCHING) {
+                        console.log('Back to searching state. Someone declined?')
+                        break
+                    }
+                }
+                if (await gameLobby.isInGameLobby()) {
+                    console.log('Went to game lobby')
+                    break
+                } else console.log('Someone declined. Trying again')
             }
+            await sleep(1000)
         }
+        return observer
     }
 
     async function autodeclare(pref: LanePreference): Promise<() => void> {
@@ -78,7 +88,7 @@ export async function run(
 
             if (!champion) throw new errors.CannotFindChampionError()
             await gameLobby.pickChampion(champion, gameLobby.firstUncompletedPickAction!, false).catch(e => {
-                console.error('Unexpected error while declaring', { e, body: e?.responsteae?.body })
+                console.error('Unexpected error while declaring', { e, body: e?.response?.body })
                 throw e
             })
         })
@@ -107,12 +117,12 @@ export async function run(
 
             while (!champion && championsToBan.length > 0) {
                 const tempChampion = await champions.findChampion(championsToBan.shift()!)
-                if (tempChampion && tempChampion.isBannable) champion = tempChampion
+                if (tempChampion && !gameLobby.myTeamDeclaredChampionIds.includes(tempChampion.id)) champion = tempChampion
                 if (!champion) continue
                 await gameLobby.banChampion(champion, action).catch(e => {
                     if (errorIsChampionAlreadyUsed(e)) champion = null
                     else {
-                        console.error('Unexpected error while banning', { e, body: e?.responsteae?.body })
+                        console.error('Unexpected error while banning', { e, body: e?.response?.body })
                         throw e
                     }
                 })
@@ -146,12 +156,13 @@ export async function run(
 
             while (!champion && championsToPick.length > 0) {
                 const tempChampion = await champions.findChampion(championsToPick.shift()!)
-                if (tempChampion && tempChampion.isPickable) champion = tempChampion
+                if (tempChampion && !gameLobby.bannedChampions.includes(tempChampion.id)) champion = tempChampion
                 if (!champion) continue
                 await gameLobby.pickChampion(champion, action).catch(e => {
                     if (errorIsChampionAlreadyUsed(e)) champion = null
+                    else if (e?.response?.statusCode === 500) champion = null
                     else {
-                        console.error('Unexpected error while picking', { e, body: e?.responsteae?.body })
+                        console.error('Unexpected error while picking', { e, body: e?.response?.body })
                         throw e
                     }
                 })
@@ -206,21 +217,42 @@ export async function run(
         return removeActionHandler
     }
 
+    async function waitGameStart(): Promise<void> {
+        const removeActionHandler: any = await new Promise(async res => {
+            let handled = false
+            const removeActionHandler = gameLobby.addOnActionHandler(async () => {
+                if (gameLobby.phase !== GameLobby.PHASES.GAME_STARTING) return
+                if (handled) return
+                handled = true
+                res(removeActionHandler)
+            })
+        });
+        return removeActionHandler();
+    }
+
 
     config.readConfig()
 
-    if (!(await lobby.isInLobby()) && !(await gameLobby.isInGameLobby())) {
-        if (config.autolobby) await autolobby()
+    if (config.autolobby) {
+        if (!(await lobby.isInLobby()) && !(await gameLobby.isInGameLobby())) {
+            console.log('autolobby')
+            await autolobby()
+        }
     }
 
-    if (!(await gameLobby.isInGameLobby())) {
-        if (config.autoposition) await autoposition()
-        if (config.autosearch) await autosearch()
-        if (config.autoaccept) await autoaccept()
+    if (config.autoposition || config.autosearch || config.autoaccept) {
+        if (!(await gameLobby.isInGameLobby())) {
+            console.log('autoposition')
+            if (config.autoposition) await autoposition()
+            console.log('autosearch')
+            if (config.autosearch) await autosearch()
+            console.log('autoaccept')
+            if (config.autoaccept) await autoaccept()
+        }
     }
 
-    if (await gameLobby.isInGameLobby()) {
-        if (config.autodeclare || config.autoban || config.autopick || config.autorunes || config.autosummoners) {
+    if (config.autodeclare || config.autoban || config.autopick || config.autorunes || config.autosummoners) {
+        if (await gameLobby.isInGameLobby()) {
             console.log('waitForGameLobby')
             await gameLobby.waitForGameLobby()
             console.log('observeActions')
@@ -246,11 +278,15 @@ export async function run(
 
             console.log('stopHandlers')
             const stopHandlers = await Promise.all(gameLobbyPromises)
-            console.log('waitLeaveGameLobby')
-            await gameLobby.waitLeaveGameLobby()
+            console.log('waitGameStart')
+            await waitGameStart()
+            console.log('Game started')
             stopHandlers.forEach(f => f && f())
+            console.log('Handlers stopped')
             actionObserver.unsubscribe()
+            console.log('actionObserver.unsubscribe')
             championsOberver.forEach(obs => obs.unsubscribe())
+            console.log('championsOberver.unsubscribe')
         }
     }
 
