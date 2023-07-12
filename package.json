@@ -54,7 +54,7 @@
     "tslint": "^6.1.1",
     "tslint-config-prettier": "^1.18.0",
     "typescript": "^3.9.3",
-    "vue-cli-plugin-electron-builder": "~1.4.6",
+    "vue-cli-plugin-electron-builder": "~2.1.1",
     "vue-template-compiler": "^2.6.11"
   },
   "eslintConfig": {
